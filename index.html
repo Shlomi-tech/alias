@@ -67,6 +67,9 @@
   .pick .cnt { color: var(--muted); font-size: 15px; }
   .pick.cur { opacity: .55; }
   .danger { background: #4a1630; color: #ffb4c8; }
+  .gitem { display: flex; align-items: center; gap: 8px; background: #17132f; border-radius: 12px; padding: 10px 12px; }
+  .gitem .ginfo { flex: 1; min-width: 0; font-size: 16px; }
+  .gitem button { padding: 10px 14px; font-size: 16px; }
   @keyframes up { from { transform: translateY(100%); } }
   @keyframes fade { from { opacity: 0; } }
   .scores { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -144,6 +147,8 @@ const TEAMS = [
 ];
 const DEFAULTS = { seconds: 60, target: 20, skipPenalty: true, level: 'all', teamCount: 2 };
 let movingPid = null; // השחקן שנבחר להעברה בין קבוצות
+let exitSheet = false; // חלון היציאה פתוח
+let myGames = null;    // רשימת המשחקים שלי (נטענת בדף הבית)
 const LEVELS = { easy: 'קל', medium: 'בינוני', hard: 'קשה', all: 'הכל' };
 
 // ---------- מצב מקומי ----------
@@ -164,6 +169,24 @@ let presenceUnsub = null;
 const now = () => Date.now() + offset;
 onValue(ref(db, '.info/serverTimeOffset'), (s) => { offset = s.val() || 0; });
 
+// היסטוריית המשחקים נשמרת בטלפון עצמו
+const loadGames = () => { try { return JSON.parse(store.get('alias_rooms') || '[]'); } catch { return []; } };
+function rememberGame(c) {
+  const list = loadGames().filter((g) => g.code !== c);
+  list.unshift({ code: c, at: Date.now() });
+  store.set('alias_rooms', JSON.stringify(list.slice(0, 20)));
+}
+function forgetGame(c) { store.set('alias_rooms', JSON.stringify(loadGames().filter((g) => g.code !== c))); }
+async function loadMyGames() {
+  const list = loadGames();
+  const res = await Promise.all(list.map(async (g) => {
+    try { const v = (await get(ref(db, `rooms/${g.code}`))).val(); return v && v.players?.[pid] ? { ...g, room: v } : null; } catch { return { ...g, room: undefined }; }
+  }));
+  // חדרים שנמחקו או שהוצאתי מהם יורדים מהרשימה
+  res.forEach((g, i) => { if (g === null) forgetGame(list[i].code); });
+  myGames = res.filter(Boolean);
+  if (screen === 'home') render();
+}
 const roomPath = (p = '') => `rooms/${code}${p ? '/' + p : ''}`;
 const R = (p) => ref(db, roomPath(p));
 const $app = document.getElementById('app');
@@ -256,11 +279,12 @@ function toast(msg) {
 
 // ---------- כניסה לחדר ----------
 async function start() {
-  if (!code) { screen = 'home'; return render(); }
+  if (!code) return goHome();
   try {
     const snap = await get(ref(db, `rooms/${code}`));
     if (!snap.exists()) { homeError = `חדר ${code} לא נמצא. בדוק את הקוד או צור משחק חדש.`; code = null; setUrl(); screen = 'home'; return render(); }
     if (snap.val().players?.[pid]) return enterRoom();
+    if (snap.val().closed) { homeError = `המשחק בחדר ${code} נסגר על ידי המארח.`; code = null; setUrl(); return goHome(); }
     screen = 'join'; render();
   } catch (e) {
     console.error(e); homeError = 'בעיית חיבור לשרת. בדוק את האינטרנט ונסה שוב.'; screen = 'home'; render();
@@ -273,13 +297,19 @@ function setUrl() {
   history.replaceState(null, '', u);
 }
 
+function goHome() {
+  screen = 'home'; myGames = null; render(); loadMyGames();
+}
+
 function enterRoom() {
   setUrl();
+  rememberGame(code);
+  exitSheet = false; movingPid = null;
   screen = 'room';
   roomUnsub && roomUnsub();
   roomUnsub = onValue(R(), (s) => {
     room = s.val();
-    if (!room) { homeError = 'החדר נסגר.'; leave(); return; }
+    if (!room) { homeError = 'החדר נמחק.'; leave(false); return; }
     if (!room.players?.[pid]) { screen = 'join'; homeError = 'הוצאת מהחדר, אפשר להצטרף מחדש.'; }
     else if (screen === 'join') screen = 'room';
     render();
@@ -294,10 +324,11 @@ function enterRoom() {
   keepAwake();
 }
 
-function leave() {
+function leave(markOffline = true) {
   roomUnsub && roomUnsub(); roomUnsub = null;
   presenceUnsub && presenceUnsub(); presenceUnsub = null;
-  room = null; code = null; setUrl(); screen = 'home'; render();
+  if (code && markOffline) set(ref(db, `rooms/${code}/players/${pid}/online`), false).catch(() => {});
+  room = null; code = null; exitSheet = false; movingPid = null; setUrl(); goHome();
 }
 
 async function createRoom(name) {
@@ -319,6 +350,7 @@ async function joinRoom(name) {
   const snap = await get(ref(db, `rooms/${code}`));
   if (!snap.exists()) { homeError = 'החדר לא נמצא.'; code = null; setUrl(); screen = 'home'; return render(); }
   const r = snap.val();
+  if (r.closed && !r.players?.[pid]) { homeError = 'המשחק הזה נסגר על ידי המארח.'; code = null; setUrl(); return goHome(); }
   const players = Object.values(r.players || {});
   const n = (r.settings || DEFAULTS).teamCount || 2;
   const existing = r.players?.[pid];
@@ -352,7 +384,26 @@ const A = {
   },
   whatsapp() { window.open(`https://wa.me/?text=${encodeURIComponent(`בוא לשחק אליאס! קוד חדר ${code}\n${shareUrl()}`)}`, '_blank'); },
   copy() { navigator.clipboard?.writeText(shareUrl()).then(() => toast('הקישור הועתק'), () => toast(shareUrl())); },
-  leave() { if (confirm('לצאת מהמשחק?')) { remove(R(`players/${pid}`)).finally(leave); } },
+  exit() { exitSheet = true; render(); },
+  closeExit() { exitSheet = false; render(); },
+  leaveTemp() { leave(); },
+  leaveForever() {
+    if (!confirm('לעזוב את המשחק לגמרי? לא תקבל יותר תורות.')) return;
+    const c = code; forgetGame(c); remove(R(`players/${pid}`)).finally(() => leave(false));
+  },
+  closeGame() {
+    if (!isHost() || !confirm('לסגור את המשחק לכל השחקנים? תוכל לפתוח אותו מחדש מהדף הראשי.')) return;
+    exitSheet = false; update(R(), { closed: true, closedAt: serverTimestamp(), 'turn/paused': room.phase === 'playing' && room.turn?.paused == null ? Math.max(0, room.turn.endsAt - now()) : room.turn?.paused ?? null });
+  },
+  reopenGame() { if (isHost()) update(R(), { closed: null, closedAt: null }); },
+  async reopenFromHome(c) {
+    code = c;
+    await update(ref(db, `rooms/${c}`), { closed: null, closedAt: null }).catch(() => toast('בעיית חיבור'));
+    enterRoom();
+  },
+  backTo(c) { code = c; enterRoom(); },
+  forget(c) { forgetGame(c); myGames = (myGames || []).filter((g) => g.code !== c); render(); },
+  home() { leave(); },
   mute() { muted = !muted; store.set('alias_muted', muted ? '1' : '0'); render(); },
 
   // לובי
@@ -512,8 +563,28 @@ function viewHome() {
   <div class="card">${nameField()}<button class="primary big" data-a="create">🎲 צור משחק חדש</button></div>
   <div class="divider">או הצטרף למשחק קיים</div>
   <div class="card"><div class="row"><input id="code" inputmode="numeric" maxlength="6" placeholder="קוד חדר"><button data-a="goJoin">הצטרף</button></div></div>
+  ${myGamesView()}
   <div class="spacer"></div>
   <p class="muted center">אחד יוצר משחק, וכל השאר מצטרפים עם הקישור או עם קוד החדר</p>`;
+}
+
+function myGamesView() {
+  if (myGames === null) return loadGames().length ? '<div class="muted center">טוען את המשחקים שלך...</div>' : '';
+  if (!myGames.length) return '';
+  const fmt = (ts) => { const d = new Date(ts); return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' }) + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }); };
+  const item = (g) => {
+    const r = g.room; if (r === undefined) return `<div class="wi"><span>חדר ${g.code}</span><span class="muted">אין חיבור</span></div>`;
+    const host = r.host === pid; const n = Object.keys(r.players || {}).length;
+    const status = r.closed ? '🔒 סגור' : r.phase === 'lobby' ? '⏳ בלובי' : r.phase === 'finished' ? '🏆 הסתיים' : '▶️ במשחק';
+    const btn = !r.closed ? `<button class="primary" data-a="backTo" data-v="${g.code}">חזור</button>`
+      : host ? `<button data-a="reopenFromHome" data-v="${g.code}">🔓 פתח</button>` : '';
+    return `<div class="gitem"><div class="ginfo"><b>חדר ${g.code}</b> ${host ? '👑' : ''} <span class="muted">· ${status}</span>
+        <div class="muted">${n} שחקנים · ${esc(r.players?.[r.host]?.name || '')} · ${fmt(r.createdAt || g.at)}</div></div>
+      ${btn}<button class="x" data-a="forget" data-v="${g.code}" title="הסר מהרשימה">✕</button></div>`;
+  };
+  const active = myGames.filter((g) => g.room && !g.room.closed), closed = myGames.filter((g) => !(g.room && !g.room.closed));
+  return `${active.length ? `<div class="card"><h2>🎮 משחקים פעילים</h2>${active.map(item).join('')}</div>` : ''}
+    ${closed.length ? `<div class="card"><h2>📜 היסטוריה</h2>${closed.map(item).join('')}</div>` : ''}`;
 }
 
 function viewJoin() {
@@ -526,7 +597,7 @@ function viewJoin() {
 
 function topbar() {
   return `<div class="topbar">
-    <button class="icon-btn" data-a="leave" title="יציאה">🚪</button>
+    <button class="icon-btn" data-a="exit" title="יציאה">🚪</button>
     <div class="code">חדר <b>${esc(code)}</b>${isHost() ? ' · 👑 מארח' : ''}</div>
     <button class="icon-btn" data-a="mute" title="צליל">${muted ? '🔇' : '🔊'}</button>
   </div>`;
@@ -538,11 +609,32 @@ function hostMissing() {
   return `<div class="card"><div class="muted">המארח ${h ? esc(h.name) + ' התנתק' : 'יצא מהחדר'}.</div><button data-a="takeHost">👑 קח שליטה כמארח</button></div>`;
 }
 
+function exitSheetView() {
+  if (!exitSheet) return '';
+  return `<div class="sheet-bg" data-a="closeExit"><div class="sheet" data-a="noop">
+    <h2>יציאה מהמשחק</h2>
+    <button class="pick" style="--c:var(--accent)" data-a="leaveTemp"><span class="nm">🏠 יציאה לדף הראשי<br><span class="muted">המשחק ממשיך, ותוכל לחזור אליו מ"המשחקים שלי"</span></span></button>
+    ${isHost() ? `<button class="pick" style="--c:var(--danger)" data-a="closeGame"><span class="nm">🔒 סגור את המשחק לכולם<br><span class="muted">המשחק נעצר אצל כל השחקנים. אפשר לפתוח מחדש</span></span></button>`
+      : `<button class="pick" style="--c:var(--danger)" data-a="leaveForever"><span class="nm">👋 עזוב את המשחק לגמרי<br><span class="muted">תצא מהקבוצה ולא תקבל יותר תורות</span></span></button>`}
+    <button data-a="closeExit">ביטול</button>
+  </div></div>`;
+}
+
+function viewClosed() {
+  const hasScores = room.scores && room.phase !== 'lobby';
+  return `<div class="hero"><div class="who">🔒 המשחק נסגר</div>
+      <div class="muted">${isHost() ? 'סגרת את המשחק. השחקנים רואים את המסך הזה.' : `המארח ${esc(pname(room.host))} סגר את המשחק`}</div></div>
+    ${hasScores ? scoreboard() : ''}
+    ${isHost() ? '<button class="primary big" data-a="reopenGame">🔓 פתח את המשחק מחדש</button>' : ''}
+    <button data-a="home">🏠 לדף הראשי</button>`;
+}
+
 function viewRoom() {
+  if (room.closed) return topbar() + viewClosed();
   const p = room.phase;
   const body = p === 'lobby' ? viewLobby() : p === 'ready' ? viewReady() : p === 'playing' ? viewPlaying()
     : p === 'review' || p === 'saving' ? viewReview() : p === 'finished' ? viewFinished() : '';
-  return topbar() + hostMissing() + body;
+  return exitSheetView() + topbar() + hostMissing() + body;
 }
 
 function playerChip(pl, opts = {}) {
@@ -691,7 +783,7 @@ function viewFinished() {
 // ---------- טיימר משותף ----------
 let lastSec = null, endedFor = null;
 function tick(fromRender) {
-  if (screen !== 'room' || !room || room.phase !== 'playing') { lastSec = null; return; }
+  if (screen !== 'room' || !room || room.phase !== 'playing' || room.closed) { lastSec = null; return; }
   const t = room.turn; const total = settings().seconds * 1000;
   const remain = Math.max(0, t.paused != null ? t.paused : t.endsAt - now());
   const sec = Math.ceil(remain / 1000);
