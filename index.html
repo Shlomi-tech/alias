@@ -142,7 +142,7 @@ const TEAMS = [
   { name: 'הטורקיזים', color: '#14b8a6' },
   { name: 'הצהובים', color: '#eab308' },
 ];
-const DEFAULTS = { seconds: 60, target: 30, skipPenalty: true, level: 'all', teamCount: 2 };
+const DEFAULTS = { seconds: 60, target: 20, skipPenalty: true, level: 'all', teamCount: 2 };
 let movingPid = null; // השחקן שנבחר להעברה בין קבוצות
 const LEVELS = { easy: 'קל', medium: 'בינוני', hard: 'קשה', all: 'הכל' };
 
@@ -596,7 +596,7 @@ function viewLobby() {
     <div class="label">מספר קבוצות</div>${seg('teamCount', [2, 3, 4, 5, 6, 7, 8].map((k) => [k, String(k)]), n)}
     <button data-a="shuffleTeams">🔀 חלק קבוצות באקראי</button>
     <div class="label">שניות לכל תור</div>${seg('seconds', [[30, '30'], [45, '45'], [60, '60'], [90, '90'], [120, '120']], st.seconds)}
-    <div class="label">ניקוד לניצחון <span class="muted">· הקבוצה הראשונה שמגיעה למספר הזה מנצחת. כל מילה שנוחשה = נקודה</span></div>${seg('target', [[20, '20'], [30, '30'], [40, '40'], [50, '50'], [75, '75']], st.target)}
+    <div class="label">ניקוד לניצחון <span class="muted">· הקבוצה הראשונה שמגיעה למספר הזה מנצחת. כל מילה שנוחשה = נקודה</span></div>${seg('target', [10, 15, 20, 25, 30].map((k) => [k, String(k)]), st.target)}
     <div class="label">רמת קושי <span class="muted">· קל: כלב, תפוח · בינוני: מעלית, שקשוקה · קשה: קנאה, בורסה</span></div>${seg('level', Object.entries(LEVELS), st.level)}
     <div class="toggle"><span>דילוג מוריד נקודה</span><button class="sw ${st.skipPenalty ? 'on' : ''}" data-a="setting" data-v="skipPenalty"></button></div>
   </div>
