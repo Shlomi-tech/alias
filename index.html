@@ -171,20 +171,31 @@ onValue(ref(db, '.info/serverTimeOffset'), (s) => { offset = s.val() || 0; });
 
 // היסטוריית המשחקים נשמרת בטלפון עצמו
 const loadGames = () => { try { return JSON.parse(store.get('alias_rooms') || '[]'); } catch { return []; } };
-function rememberGame(c) {
+const hiddenGames = () => { try { return JSON.parse(store.get('alias_hidden') || '[]'); } catch { return []; } };
+function rememberGame(c, auto = false) {
+  // משחק שנמחק מהרשימה לא חוזר אליה מעצמו (למשל כשהדפדפן טוען מחדש לשונית ישנה)
+  if (auto && hiddenGames().includes(c)) return;
+  store.set('alias_hidden', JSON.stringify(hiddenGames().filter((x) => x !== c)));
   const list = loadGames().filter((g) => g.code !== c);
   list.unshift({ code: c, at: Date.now() });
   store.set('alias_rooms', JSON.stringify(list.slice(0, 20)));
 }
-function forgetGame(c) { store.set('alias_rooms', JSON.stringify(loadGames().filter((g) => g.code !== c))); }
+function forgetGame(c) {
+  store.set('alias_rooms', JSON.stringify(loadGames().filter((g) => g.code !== c)));
+  store.set('alias_hidden', JSON.stringify([c, ...hiddenGames().filter((x) => x !== c)].slice(0, 50)));
+}
+let gamesLoadId = 0;
 async function loadMyGames() {
+  const myId = ++gamesLoadId;
   const list = loadGames();
   const res = await Promise.all(list.map(async (g) => {
     try { const v = (await get(ref(db, `rooms/${g.code}`))).val(); return v && v.players?.[pid] ? { ...g, room: v } : null; } catch { return { ...g, room: undefined }; }
   }));
   // חדרים שנמחקו או שהוצאתי מהם יורדים מהרשימה
   res.forEach((g, i) => { if (g === null) forgetGame(list[i].code); });
-  myGames = res.filter(Boolean);
+  if (myId !== gamesLoadId) return; // טעינה ישנה יותר, מתעלמים
+  const keep = new Set(loadGames().map((g) => g.code)); // מה שנמחק בזמן הטעינה לא חוזר
+  myGames = res.filter((g) => g && keep.has(g.code));
   if (screen === 'home') render();
 }
 const roomPath = (p = '') => `rooms/${code}${p ? '/' + p : ''}`;
@@ -283,7 +294,7 @@ async function start() {
   try {
     const snap = await get(ref(db, `rooms/${code}`));
     if (!snap.exists()) { homeError = `חדר ${code} לא נמצא. בדוק את הקוד או צור משחק חדש.`; code = null; setUrl(); screen = 'home'; return render(); }
-    if (snap.val().players?.[pid]) return enterRoom();
+    if (snap.val().players?.[pid]) return enterRoom(true);
     if (snap.val().closed) { homeError = `המשחק בחדר ${code} נסגר על ידי המארח.`; code = null; setUrl(); return goHome(); }
     screen = 'join'; render();
   } catch (e) {
@@ -301,9 +312,9 @@ function goHome() {
   screen = 'home'; myGames = null; render(); loadMyGames();
 }
 
-function enterRoom() {
+function enterRoom(auto = false) {
   setUrl();
-  rememberGame(code);
+  rememberGame(code, auto);
   exitSheet = false; movingPid = null;
   screen = 'room';
   roomUnsub && roomUnsub();
@@ -379,7 +390,8 @@ const A = {
   share() {
     const url = shareUrl();
     const text = `בוא לשחק אליאס! קוד חדר ${code}\n${url}`;
-    if (navigator.share) navigator.share({ title: 'אליאס', text, url }).catch(() => {});
+    // הקישור נשלח רק בתוך הטקסט, אחרת וואטסאפ מצרף אותו פעמיים
+    if (navigator.share) navigator.share({ text }).catch(() => {});
     else A.copy();
   },
   whatsapp() { window.open(`https://wa.me/?text=${encodeURIComponent(`בוא לשחק אליאס! קוד חדר ${code}\n${shareUrl()}`)}`, '_blank'); },
