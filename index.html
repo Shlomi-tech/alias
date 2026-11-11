@@ -42,6 +42,8 @@
   .icon-btn { padding: 8px 12px; font-size: 18px; background: var(--card); }
   .seg { display: flex; gap: 6px; flex-wrap: wrap; }
   .seg button { flex: 1; padding: 10px 6px; font-size: 16px; min-width: 52px; }
+  .seg.tight { flex-wrap: nowrap; }
+  .seg.tight button { min-width: 0; padding: 10px 2px; }
   .seg button.on { background: var(--accent); color: #1d1600; }
   .label { font-size: 15px; color: var(--muted); font-weight: 500; }
   .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -55,8 +57,20 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
   .off .dot { background: #666; }
   .x { background: none; padding: 0 4px; font-size: 16px; color: var(--muted); }
-  .scores { display: flex; gap: 8px; }
-  .score { flex: 1; background: var(--card); border-radius: 14px; padding: 8px; text-align: center; border-bottom: 4px solid var(--c); }
+  .player .mv { color: var(--muted); font-size: 15px; flex: none; }
+  .sheet-bg { position: fixed; inset: 0; background: #000a; z-index: 8; display: flex; align-items: flex-end; justify-content: center; animation: fade .15s; }
+  .sheet { background: var(--card); width: 100%; max-width: 520px; border-radius: 22px 22px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; max-height: 85dvh; overflow-y: auto; animation: up .2s ease-out; }
+  .sheet h2 { text-align: center; }
+  .pick { display: flex; align-items: center; gap: 12px; text-align: right; background: #17132f; border-right: 6px solid var(--c); font-weight: 500; }
+  .pick .sw-c { width: 18px; height: 18px; border-radius: 50%; background: var(--c); flex: none; }
+  .pick .nm { flex: 1; }
+  .pick .cnt { color: var(--muted); font-size: 15px; }
+  .pick.cur { opacity: .55; }
+  .danger { background: #4a1630; color: #ffb4c8; }
+  @keyframes up { from { transform: translateY(100%); } }
+  @keyframes fade { from { opacity: 0; } }
+  .scores { display: flex; gap: 8px; flex-wrap: wrap; }
+  .score { flex: 1 1 70px; background: var(--card); border-radius: 14px; padding: 8px; text-align: center; border-bottom: 4px solid var(--c); }
   .score .n { font-size: 26px; font-weight: 900; }
   .score .t { font-size: 13px; color: var(--muted); }
   .score.active { background: var(--card2); }
@@ -123,8 +137,13 @@ const TEAMS = [
   { name: 'האדומים', color: '#ef4444' },
   { name: 'הירוקים', color: '#22c55e' },
   { name: 'הסגולים', color: '#a855f7' },
+  { name: 'הכתומים', color: '#f97316' },
+  { name: 'הוורודים', color: '#ec4899' },
+  { name: 'הטורקיזים', color: '#14b8a6' },
+  { name: 'הצהובים', color: '#eab308' },
 ];
 const DEFAULTS = { seconds: 60, target: 30, skipPenalty: true, level: 'all', teamCount: 2 };
+let movingPid = null; // השחקן שנבחר להעברה בין קבוצות
 const LEVELS = { easy: 'קל', medium: 'בינוני', hard: 'קשה', all: 'הכל' };
 
 // ---------- מצב מקומי ----------
@@ -345,6 +364,15 @@ const A = {
     if (key === 'teamCount') {
       const ps = playersArr(); const placed = ps.filter((p) => p.team < val);
       ps.filter((p) => p.team >= val).forEach((p) => { p.team = smallestTeam(placed, val); placed.push(p); upd[`players/${p.id}/team`] = p.team; });
+      // קבוצות חדשות שנשארו ריקות: מעבירים אליהן שחקן מהקבוצה הגדולה ביותר
+      for (let t = 0; t < val; t++) {
+        if (placed.some((p) => p.team === t)) continue;
+        const sizes = Array(val).fill(0); placed.forEach((p) => sizes[p.team]++);
+        const big = sizes.indexOf(Math.max(...sizes));
+        if (sizes[big] < 2) break;
+        const p = placed.filter((x) => x.team === big).pop();
+        p.team = t; upd[`players/${p.id}/team`] = t;
+      }
     }
     update(R(), upd);
   },
@@ -356,12 +384,18 @@ const A = {
   },
   move(id) {
     if (!(isHost() || id === pid) || room.phase !== 'lobby') return;
-    const n = settings().teamCount;
-    update(R(), { [`players/${id}/team`]: ((room.players[id].team || 0) + 1) % n });
+    movingPid = id; render();
   },
+  moveTo(t) {
+    const id = movingPid; movingPid = null;
+    if (id && room.players?.[id] && (isHost() || id === pid)) update(R(), { [`players/${id}/team`]: Number(t) });
+    render();
+  },
+  closeSheet() { movingPid = null; render(); },
+  noop() {},
   kick(id) {
     if (!isHost() || id === pid) return;
-    if (confirm(`להוציא את ${pname(id)} מהחדר?`)) remove(R(`players/${id}`));
+    if (confirm(`להוציא את ${pname(id)} מהחדר?`)) { movingPid = null; remove(R(`players/${id}`)); }
   },
   renameTeam(t) {
     if (!isHost()) return;
@@ -375,7 +409,7 @@ const A = {
     if (!isHost()) return;
     const st = settings();
     const empty = TEAMS.slice(0, st.teamCount).filter((_, t) => !teamPlayers(t).length);
-    if (empty.length) { toast('בכל קבוצה צריך לפחות שחקן אחד'); return; }
+    if (empty.length) { toast(`אין שחקנים בקבוצה: ${TEAMS.slice(0, st.teamCount).map((_, t) => t).filter((t) => !teamPlayers(t).length).map((t) => teamOf(t).name).join(', ')}`); return; }
     const plan = planTurn({ team: 0, idx: {} }, st.teamCount, 1);
     const scores = {}; for (let t = 0; t < st.teamCount; t++) scores[t] = 0;
     update(R(), { phase: 'ready', scores, turn: plan.turn, rot: plan.rot, winner: null, seed: Math.floor(Math.random() * 2 ** 31), deckPos: 0 });
@@ -515,12 +549,29 @@ function playerChip(pl, opts = {}) {
   const me = pl.id === pid; const tap = room.phase === 'lobby' && (isHost() || me);
   return `<div class="player ${me ? 'me' : ''} ${pl.online === false ? 'off' : ''} ${tap ? 'tap' : ''}" ${tap ? `data-a="move" data-v="${pl.id}"` : ''}>
     <span class="dot"></span><span class="nm">${room.host === pl.id ? '👑 ' : ''}${esc(pl.name)}${me ? ' (אני)' : ''}</span>
-    ${opts.kick && isHost() && !me ? `<button class="x" data-a="kick" data-v="${pl.id}">✕</button>` : ''}
+    ${tap ? '<span class="mv">⇄</span>' : ''}
   </div>`;
 }
 
+function moveSheet() {
+  const pl = movingPid && room.players?.[movingPid];
+  if (!pl || room.phase !== 'lobby') { movingPid = null; return ''; }
+  const me = movingPid === pid;
+  const picks = TEAMS.slice(0, settings().teamCount).map((_, t) => {
+    const tm = teamOf(t); const cur = pl.team === t;
+    return `<button class="pick ${cur ? 'cur' : ''}" style="--c:${tm.color}" ${cur ? 'disabled' : `data-a="moveTo" data-v="${t}"`}>
+      <span class="sw-c"></span><span class="nm">${esc(tm.name)}</span><span class="cnt">${cur ? '✓ כאן עכשיו' : (() => { const c = teamPlayers(t).length; return c === 0 ? 'ריקה' : c === 1 ? 'שחקן אחד' : `${c} שחקנים`; })()}</span></button>`;
+  }).join('');
+  return `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-a="noop">
+    <h2>${me ? 'לאיזו קבוצה לעבור?' : `להעביר את ${esc(pl.name)} ל...`}</h2>
+    ${picks}
+    ${isHost() && !me ? `<button class="danger" data-a="kick" data-v="${movingPid}">🚫 הוצא את ${esc(pl.name)} מהחדר</button>` : ''}
+    <button data-a="closeSheet">ביטול</button>
+  </div></div>`;
+}
+
 function seg(key, options, cur) {
-  return `<div class="seg">${options.map(([v, label]) =>
+  return `<div class="seg ${options.length > 5 ? 'tight' : ''}">${options.map(([v, label]) =>
     `<button class="${String(cur) === String(v) ? 'on' : ''}" ${isHost() ? `data-a="setting" data-v="${key}" data-w="${v}"` : 'disabled'}>${label}</button>`).join('')}</div>`;
 }
 
@@ -531,18 +582,18 @@ function viewLobby() {
       ${teamPlayers(t).map((pl) => playerChip(pl, { kick: true })).join('') || '<div class="muted">אין שחקנים</div>'}
     </div>`).join('');
   const url = shareUrl();
-  return `
+  return moveSheet() + `
   <div class="card share">
     <div class="label center">הזמינו חברים לחדר</div>
     <div class="bigcode">${esc(code)}</div>
     <div class="linkbox">${esc(url)}</div>
     <div class="row"><button data-a="whatsapp">💬 וואטסאפ</button><button data-a="share">📤 שיתוף</button><button data-a="copy">📋 העתק</button></div>
   </div>
-  ${isHost() ? '<div class="label">לחיצה על שם קבוצה ✏️ משנה את השם שלה</div>' : ''}<div class="label">${isHost() ? 'לחיצה על שחקן מעבירה אותו לקבוצה הבאה' : 'לחיצה על השם שלך מעבירה אותך לקבוצה אחרת'}</div>
+  ${isHost() ? '<div class="label">לחיצה על שם קבוצה ✏️ משנה את השם שלה</div>' : ''}<div class="label">${isHost() ? 'לחיצה על שחקן ⇄ מאפשרת להעביר אותו לקבוצה אחרת או להוציא אותו' : 'לחיצה על השם שלך ⇄ מאפשרת לעבור קבוצה'}</div>
   <div class="teams">${teams}</div>
   ${isHost() ? `
   <div class="card">
-    <div class="label">מספר קבוצות</div>${seg('teamCount', [[2, '2'], [3, '3'], [4, '4']], n)}
+    <div class="label">מספר קבוצות</div>${seg('teamCount', [2, 3, 4, 5, 6, 7, 8].map((k) => [k, String(k)]), n)}
     <button data-a="shuffleTeams">🔀 חלק קבוצות באקראי</button>
     <div class="label">שניות לכל תור</div>${seg('seconds', [[30, '30'], [45, '45'], [60, '60'], [90, '90'], [120, '120']], st.seconds)}
     <div class="label">ניקוד לניצחון <span class="muted">· הקבוצה הראשונה שמגיעה למספר הזה מנצחת. כל מילה שנוחשה = נקודה</span></div>${seg('target', [[20, '20'], [30, '30'], [40, '40'], [50, '50'], [75, '75']], st.target)}
