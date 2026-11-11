@@ -158,7 +158,7 @@ const playersArr = () => Object.entries(room?.players || {})
   .sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0) || a.id.localeCompare(b.id));
 const teamPlayers = (t) => playersArr().filter((p) => p.team === t);
 const pname = (id) => room?.players?.[id]?.name || '???';
-const teamOf = (t) => TEAMS[t] || TEAMS[0];
+const teamOf = (t) => { const base = TEAMS[t] || TEAMS[0]; const custom = room?.settings?.teamNames?.[t]; return { color: base.color, name: custom || base.name }; };
 const toTeam = (t) => 'ל' + teamOf(t).name.replace(/^ה/, ''); // "לכחולים"
 
 function smallestTeam(players, n) {
@@ -363,6 +363,12 @@ const A = {
     if (!isHost() || id === pid) return;
     if (confirm(`להוציא את ${pname(id)} מהחדר?`)) remove(R(`players/${id}`));
   },
+  renameTeam(t) {
+    if (!isHost()) return;
+    const cur = teamOf(Number(t)).name;
+    const name = (prompt('שם חדש לקבוצה:', cur) || '').trim().slice(0, 20);
+    if (name && name !== cur) update(R(), { [`settings/teamNames/${t}`]: name });
+  },
   takeHost() { if (confirm('להפוך למארח של החדר?')) update(R(), { host: pid }); },
 
   startGame() {
@@ -520,8 +526,8 @@ function seg(key, options, cur) {
 
 function viewLobby() {
   const st = settings(); const n = st.teamCount;
-  const teams = TEAMS.slice(0, n).map((tm, t) => `
-    <div class="team" style="--c:${tm.color}"><h3>${tm.name} (${teamPlayers(t).length})</h3>
+  const teams = TEAMS.slice(0, n).map((_, t) => teamOf(t)).map((tm, t) => `
+    <div class="team" style="--c:${tm.color}"><h3 ${isHost() ? `data-a="renameTeam" data-v="${t}" style="cursor:pointer"` : ''}>${esc(tm.name)}${isHost() ? ' ✏️' : ''} (${teamPlayers(t).length})</h3>
       ${teamPlayers(t).map((pl) => playerChip(pl, { kick: true })).join('') || '<div class="muted">אין שחקנים</div>'}
     </div>`).join('');
   const url = shareUrl();
@@ -532,15 +538,15 @@ function viewLobby() {
     <div class="linkbox">${esc(url)}</div>
     <div class="row"><button data-a="whatsapp">💬 וואטסאפ</button><button data-a="share">📤 שיתוף</button><button data-a="copy">📋 העתק</button></div>
   </div>
-  <div class="label">${isHost() ? 'לחיצה על שחקן מעבירה אותו לקבוצה הבאה' : 'לחיצה על השם שלך מעבירה אותך לקבוצה אחרת'}</div>
+  ${isHost() ? '<div class="label">לחיצה על שם קבוצה ✏️ משנה את השם שלה</div>' : ''}<div class="label">${isHost() ? 'לחיצה על שחקן מעבירה אותו לקבוצה הבאה' : 'לחיצה על השם שלך מעבירה אותך לקבוצה אחרת'}</div>
   <div class="teams">${teams}</div>
   ${isHost() ? `
   <div class="card">
     <div class="label">מספר קבוצות</div>${seg('teamCount', [[2, '2'], [3, '3'], [4, '4']], n)}
     <button data-a="shuffleTeams">🔀 חלק קבוצות באקראי</button>
     <div class="label">שניות לכל תור</div>${seg('seconds', [[30, '30'], [45, '45'], [60, '60'], [90, '90'], [120, '120']], st.seconds)}
-    <div class="label">ניקוד לניצחון</div>${seg('target', [[20, '20'], [30, '30'], [40, '40'], [50, '50'], [75, '75']], st.target)}
-    <div class="label">רמת קושי</div>${seg('level', Object.entries(LEVELS), st.level)}
+    <div class="label">ניקוד לניצחון <span class="muted">· הקבוצה הראשונה שמגיעה למספר הזה מנצחת. כל מילה שנוחשה = נקודה</span></div>${seg('target', [[20, '20'], [30, '30'], [40, '40'], [50, '50'], [75, '75']], st.target)}
+    <div class="label">רמת קושי <span class="muted">· קל: כלב, תפוח · בינוני: מעלית, שקשוקה · קשה: קנאה, בורסה</span></div>${seg('level', Object.entries(LEVELS), st.level)}
     <div class="toggle"><span>דילוג מוריד נקודה</span><button class="sw ${st.skipPenalty ? 'on' : ''}" data-a="setting" data-v="skipPenalty"></button></div>
   </div>
   <button class="primary big" data-a="startGame">▶️ התחל משחק</button>` : `
@@ -550,9 +556,9 @@ function viewLobby() {
 
 function scoreboard() {
   const st = settings(); const active = room.turn?.team;
-  return `<div class="scores">${TEAMS.slice(0, st.teamCount).map((tm, t) => `
+  return `<div class="scores">${TEAMS.slice(0, st.teamCount).map((_, t) => teamOf(t)).map((tm, t) => `
     <div class="score ${t === active && room.phase !== 'finished' ? 'active' : ''}" style="--c:${tm.color}">
-      <div class="n">${room.scores?.[t] || 0}</div><div class="t">${tm.name}</div>
+      <div class="n">${room.scores?.[t] || 0}</div><div class="t">${esc(tm.name)}</div>
       <div class="bar"><i style="width:${Math.min(100, ((room.scores?.[t] || 0) / st.target) * 100)}%"></i></div>
     </div>`).join('')}</div><div class="muted center">ראשונים ל-${st.target} מנצחים</div>`;
 }
@@ -560,7 +566,7 @@ function scoreboard() {
 function lastTurnLine() {
   const l = room.lastTurn; if (!l || room.phase !== 'ready') return '';
   const st = settings(); const delta = l.ok - (st.skipPenalty ? l.sk : 0);
-  return `<div class="muted center">בתור הקודם: ${teamOf(l.team).name} ${delta >= 0 ? '+' : ''}${delta}${l.lastBy >= 0 ? ` · המילה האחרונה ${toTeam(l.lastBy)}` : ''}</div>`;
+  return `<div class="muted center">בתור הקודם: ${esc(teamOf(l.team).name)} ${delta >= 0 ? '+' : ''}${delta}${l.lastBy >= 0 ? ` · המילה האחרונה ${esc(toTeam(l.lastBy))}` : ''}</div>`;
 }
 
 function viewReady() {
@@ -569,7 +575,7 @@ function viewReady() {
   const myTeam = room.players[pid]?.team === t.team;
   return `${scoreboard()}${lastTurnLine()}
   <div class="hero" style="--c:${tm.color}">
-    <span class="pill" style="--c:${tm.color}">תור ${t.num} · ${tm.name}</span>
+    <span class="pill" style="--c:${tm.color}">תור ${t.num} · ${esc(tm.name)}</span>
     <div class="who">${me ? 'אתה מסביר! 🎤' : `${exName} מסביר`}</div>
     <div class="muted">${me ? 'תחזיק את הטלפון כך שאף אחד לא יראה, ולחץ התחל כשאתה מוכן' : myTeam ? 'אתם מנחשים! תתכוננו 🧠' : 'הקבוצה שלך צופה בתור הזה'}</div>
   </div>
@@ -591,10 +597,9 @@ function viewPlaying() {
   } else if (myTeam) {
     main = `<div class="hero" style="--c:${tm.color}"><div class="who">נחשו! 🧠</div><div class="muted">${esc(pname(t.explainer))} מסביר</div></div>`;
   } else {
-    main = `<div class="hero" style="--c:${tm.color}"><div class="muted">${esc(pname(t.explainer))} מסביר ${toTeam(t.team)}. תוודאו שהוא לא אומר את המילה:</div>
-      <div class="who">${esc(wordAt(t.current))}</div></div>`;
+    main = `<div class="hero" style="--c:${tm.color}"><div class="who">👀 מקשיבים</div><div class="muted">${esc(pname(t.explainer))} מסביר ${esc(toTeam(t.team))}. תוודאו שהוא לא אומר את המילה עצמה, ותתכוננו למילה האחרונה. בסוף התור כל הקבוצות יכולות לנחש!</div></div>`;
   }
-  return `<span class="pill center" style="--c:${tm.color}; align-self:center">${tm.name} · ${esc(pname(t.explainer))}</span>
+  return `<span class="pill center" style="--c:${tm.color}; align-self:center">${esc(tm.name)} · ${esc(pname(t.explainer))}</span>
     ${paused ? '<div class="paused">⏸️ המשחק מושהה</div>' : ''}
     <div class="timer" data-timer>--</div><div class="tbar"><i data-tbar></i></div>
     ${main}
@@ -607,14 +612,15 @@ function viewReview() {
   const ws = turnWords(); const ok = ws.filter((w) => w.r === 'ok').length; const sk = ws.length - ok;
   const delta = ok - (st.skipPenalty ? sk : 0);
   const last = wordAt(t.current);
-  const teamBtns = [[-1, 'אף אחד']].concat(TEAMS.slice(0, st.teamCount).map((x, i) => [i, x.name]));
+  const teamBtns = [[-1, 'אף אחד']].concat(TEAMS.slice(0, st.teamCount).map((_, i) => [i, esc(teamOf(i).name)]));
   return `<div class="hero" style="--c:${tm.color}"><div class="who">⏰ הזמן נגמר!</div>
-      <div>${tm.name}: <b>${delta >= 0 ? '+' : ''}${delta}</b> נקודות (✅ ${ok} · ⏭️ ${sk})</div></div>
+      <div>${esc(tm.name)}: <b>${delta >= 0 ? '+' : ''}${delta}</b> נקודות (✅ ${ok} · ⏭️ ${sk})</div></div>
     <div class="card"><div class="label">${can ? 'לחץ על מילה כדי לתקן אם טעית' : `${esc(pname(t.explainer))} בודק את המילים...`}</div>
       <div class="wl">${ws.map((w, i) => `<div class="wi ${w.r} ${can ? 'tap' : ''}" ${can ? `data-a="toggleWord" data-v="${i}"` : ''}><span>${esc(w.w)}</span><b>${w.r === 'ok' ? '✅' : '⏭️'}</b></div>`).join('') || '<div class="muted">לא היו מילים בתור הזה</div>'}</div>
     </div>
     <div class="card"><div class="label">המילה האחרונה: כל הקבוצות יכולות לנחש!</div>
-      <div class="word" style="font-size:34px;padding:18px">${esc(last)}</div>
+      ${t.explainer === pid ? `<div class="word" style="font-size:34px;padding:18px">${esc(last)}</div><div class="muted">הסבר את המילה לכולם, וסמן מי ניחש ראשון</div>`
+        : `<div class="who center">🤫 ${esc(pname(t.explainer))} מסביר את המילה האחרונה. נחשו מהר!</div>`}
       <div class="label">מי ניחש ראשון?</div>
       <div class="seg">${teamBtns.map(([v, l]) => `<button class="${t.lastBy === v ? 'on' : ''}" ${can ? `data-a="lastBy" data-v="${v}"` : 'disabled'}>${l}</button>`).join('')}</div>
     </div>
@@ -624,7 +630,7 @@ function viewReview() {
 function viewFinished() {
   const tm = teamOf(room.winner); const mine = room.players[pid]?.team === room.winner;
   return `<div class="win">🏆</div>
-    <div class="hero" style="--c:${tm.color}"><div class="who" style="color:${tm.color}">${tm.name} ניצחו!</div>
+    <div class="hero" style="--c:${tm.color}"><div class="who" style="color:${tm.color}">${esc(tm.name)} ניצחו!</div>
       <div>${mine ? 'כל הכבוד! 🎉' : 'בפעם הבאה 💪'}</div>
       <div class="muted">${teamPlayers(room.winner).map((p) => esc(p.name)).join(' · ')}</div></div>
     ${scoreboard()}
