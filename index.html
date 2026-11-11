@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14112b">
+<title>אליאס - משחק הסברת מילים</title>
+<meta name="description" content="משחק הסברת מילים קבוצתי - כל אחד מהטלפון שלו">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #14112b; --card: #221d45; --card2: #2d2759; --text: #f4f2ff; --muted: #a49fcb;
+    --accent: #ffcc33; --ok: #22c55e; --skip: #f97316; --danger: #ef4444; --radius: 18px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'Rubik', system-ui, sans-serif; }
+  body { min-height: 100dvh; }
+  #app { max-width: 520px; margin: 0 auto; padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); min-height: 100dvh; display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 44px; font-weight: 900; letter-spacing: 1px; }
+  h2 { font-size: 22px; font-weight: 700; }
+  .logo { text-align: center; padding: 28px 0 8px; }
+  .logo h1 span { color: var(--accent); }
+  .logo p { color: var(--muted); margin-top: 6px; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .center { text-align: center; }
+  input { width: 100%; font: inherit; font-size: 18px; padding: 14px 16px; border-radius: 14px; border: 2px solid var(--card2); background: #17132f; color: var(--text); outline: none; }
+  input:focus { border-color: var(--accent); }
+  button { font: inherit; border: 0; cursor: pointer; border-radius: 14px; padding: 14px 18px; font-size: 18px; font-weight: 700; background: var(--card2); color: var(--text); transition: transform .08s, opacity .2s; }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .45; }
+  .primary { background: var(--accent); color: #1d1600; }
+  .big { font-size: 22px; padding: 18px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .divider { text-align: center; color: var(--muted); font-size: 14px; }
+  .err { background: #4a1630; color: #ffb4c8; padding: 10px 14px; border-radius: 12px; font-size: 15px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .topbar .code { font-weight: 700; color: var(--muted); }
+  .topbar .code b { color: var(--text); letter-spacing: 2px; }
+  .icon-btn { padding: 8px 12px; font-size: 18px; background: var(--card); }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .seg button { flex: 1; padding: 10px 6px; font-size: 16px; min-width: 52px; }
+  .seg button.on { background: var(--accent); color: #1d1600; }
+  .label { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .team { border-radius: 16px; padding: 12px; background: var(--card); border-top: 5px solid var(--c); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .team h3 { font-size: 17px; color: var(--c); }
+  .player { display: flex; align-items: center; gap: 6px; background: #17132f; border-radius: 10px; padding: 8px 10px; font-size: 16px; min-width: 0; }
+  .player .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .player.me { outline: 2px solid var(--accent); }
+  .player.off { opacity: .45; }
+  .player.tap { cursor: pointer; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+  .off .dot { background: #666; }
+  .x { background: none; padding: 0 4px; font-size: 16px; color: var(--muted); }
+  .scores { display: flex; gap: 8px; }
+  .score { flex: 1; background: var(--card); border-radius: 14px; padding: 8px; text-align: center; border-bottom: 4px solid var(--c); }
+  .score .n { font-size: 26px; font-weight: 900; }
+  .score .t { font-size: 13px; color: var(--muted); }
+  .score.active { background: var(--card2); }
+  .bar { height: 6px; background: #17132f; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+  .bar i { display: block; height: 100%; background: var(--c); }
+  .hero { text-align: center; padding: 24px 16px; border-radius: 22px; background: var(--card); border: 3px solid var(--c, var(--card2)); display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .hero .who { font-size: 30px; font-weight: 900; }
+  .timer { font-size: 84px; font-weight: 900; text-align: center; line-height: 1; font-variant-numeric: tabular-nums; }
+  .timer.warn { color: var(--danger); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { transform: scale(1.08); } }
+  .tbar { height: 10px; border-radius: 6px; background: #17132f; overflow: hidden; }
+  .tbar i { display: block; height: 100%; background: var(--accent); transition: width .2s linear; }
+  .word { font-size: 46px; font-weight: 900; text-align: center; padding: 34px 12px; background: #fff; color: #14112b; border-radius: 22px; word-break: break-word; line-height: 1.15; }
+  .actions { display: flex; gap: 12px; }
+  .actions button { flex: 1; font-size: 24px; padding: 26px 10px; border-radius: 20px; }
+  .btn-ok { background: var(--ok); color: #fff; }
+  .btn-skip { background: var(--skip); color: #fff; }
+  .counts { display: flex; justify-content: center; gap: 22px; font-size: 22px; font-weight: 700; }
+  .wl { display: flex; flex-direction: column; gap: 6px; }
+  .wi { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: #17132f; font-size: 19px; font-weight: 500; }
+  .wi.ok b { color: var(--ok); }
+  .wi.skip { opacity: .7; }
+  .wi.skip b { color: var(--skip); }
+  .wi.tap { cursor: pointer; }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 99px; background: var(--c); color: #fff; font-weight: 700; font-size: 15px; }
+  .share { display: flex; flex-direction: column; gap: 10px; }
+  .linkbox { direction: ltr; text-align: center; background: #17132f; padding: 10px; border-radius: 12px; font-size: 14px; color: var(--muted); word-break: break-all; }
+  .bigcode { font-size: 46px; font-weight: 900; letter-spacing: 8px; text-align: center; color: var(--accent); }
+  .toggle { display: flex; align-items: center; justify-content: space-between; }
+  .sw { width: 54px; height: 30px; border-radius: 30px; padding: 0; background: #17132f; position: relative; flex: none; }
+  .sw::after { content: ''; position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--muted); transition: .2s; }
+  .sw.on { background: var(--ok); }
+  .sw.on::after { right: 27px; background: #fff; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #000c; color: #fff; padding: 10px 18px; border-radius: 12px; z-index: 9; font-size: 16px; }
+  .paused { background: #3b2f00; color: var(--accent); text-align: center; font-weight: 700; padding: 10px; border-radius: 12px; }
+  .spacer { flex: 1; }
+  .win { font-size: 72px; text-align: center; }
+  .loading { margin: auto; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="app"><div class="loading">טוען...</div></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, set, update, get, remove, runTransaction, onDisconnect, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { WORDS } from "./words.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyChkOAnLeQ1lMoqS1YzaWbgDpjVhSx1coU",
+  authDomain: "alias-game-2b589.firebaseapp.com",
+  databaseURL: "https://alias-game-2b589-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "alias-game-2b589",
+  storageBucket: "alias-game-2b589.firebasestorage.app",
+  messagingSenderId: "902615447778",
+  appId: "1:902615447778:web:f5174648d0ac34257046bb",
+};
+const db = getDatabase(initializeApp(firebaseConfig));
+
+// ---------- קבועים ----------
+const TEAMS = [
+  { name: 'הכחולים', color: '#3b82f6' },
+  { name: 'האדומים', color: '#ef4444' },
+  { name: 'הירוקים', color: '#22c55e' },
+  { name: 'הסגולים', color: '#a855f7' },
+];
+const DEFAULTS = { seconds: 60, target: 30, skipPenalty: true, level: 'all', teamCount: 2 };
+const LEVELS = { easy: 'קל', medium: 'בינוני', hard: 'קשה', all: 'הכל' };
+
+// ---------- מצב מקומי ----------
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+let pid = store.get('alias_pid');
+if (!pid) { pid = 'p' + Math.random().toString(36).slice(2, 10); store.set('alias_pid', pid); }
+let code = (new URLSearchParams(location.search).get('room') || '').replace(/\D/g, '').slice(0, 6) || null;
+let room = null;          // מצב החדר מהשרת
+let screen = 'loading';   // home | join | room
+let homeError = '';
+let muted = store.get('alias_muted') === '1';
+let offset = 0;
+let roomUnsub = null;
+let presenceUnsub = null;
+const now = () => Date.now() + offset;
+onValue(ref(db, '.info/serverTimeOffset'), (s) => { offset = s.val() || 0; });
+
+const roomPath = (p = '') => `rooms/${code}${p ? '/' + p : ''}`;
+const R = (p) => ref(db, roomPath(p));
+const $app = document.getElementById('app');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- עזרי משחק ----------
+const settings = () => ({ ...DEFAULTS, ...(room?.settings || {}) });
+const isHost = () => room?.host === pid;
+const playersArr = () => Object.entries(room?.players || {})
+  .map(([id, p]) => ({ id, ...p }))
+  .sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0) || a.id.localeCompare(b.id));
+const teamPlayers = (t) => playersArr().filter((p) => p.team === t);
+const pname = (id) => room?.players?.[id]?.name || '???';
+const teamOf = (t) => TEAMS[t] || TEAMS[0];
+const toTeam = (t) => 'ל' + teamOf(t).name.replace(/^ה/, ''); // "לכחולים"
+
+function smallestTeam(players, n) {
+  const counts = Array(n).fill(0);
+  players.forEach((p) => { if (p.team >= 0 && p.team < n) counts[p.team]++; });
+  return counts.indexOf(Math.min(...counts));
+}
+
+function seededShuffle(arr, seed) {
+  const a = arr.slice();
+  let s = seed >>> 0 || 1;
+  const rnd = () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+let deckCache = { key: '', deck: [] };
+function deck() {
+  const st = settings();
+  const key = `${room.seed}|${st.level}`;
+  if (deckCache.key !== key) {
+    const pool = st.level === 'all' ? [...WORDS.easy, ...WORDS.medium, ...WORDS.hard] : WORDS[st.level];
+    deckCache = { key, deck: seededShuffle(pool, room.seed) };
+  }
+  return deckCache.deck;
+}
+const wordAt = (i) => { const d = deck(); return d[((i % d.length) + d.length) % d.length]; };
+const turnWords = () => {
+  const w = room?.turn?.words;
+  return Array.isArray(w) ? w.filter(Boolean) : Object.values(w || {});
+};
+
+// בחירת המסביר הבא לפי סבב בתוך כל קבוצה
+function planTurn(rot, n, num) {
+  rot = { team: rot?.team || 0, idx: { ...(rot?.idx || {}) } };
+  for (let k = 0; k < n; k++) {
+    const team = (rot.team + k) % n;
+    const tp = teamPlayers(team);
+    if (!tp.length) continue;
+    const counter = rot.idx[team] || 0;
+    return {
+      turn: { num, team, counter, explainer: tp[counter % tp.length].id },
+      rot: { team: (team + 1) % n, idx: { ...rot.idx, [team]: counter + 1 } },
+    };
+  }
+  return null;
+}
+
+// ---------- צלילים ורטט ----------
+let actx = null;
+function beep(freq = 880, dur = 0.12, vol = 0.25) {
+  if (muted) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = freq; o.type = 'sine';
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+  } catch {}
+}
+const vibrate = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+document.addEventListener('pointerdown', () => {
+  try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {}
+}, { once: true });
+
+let wakeLock = null;
+async function keepAwake() {
+  try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && screen === 'room') keepAwake(); });
+
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
+}
+
+// ---------- כניסה לחדר ----------
+async function start() {
+  if (!code) { screen = 'home'; return render(); }
+  try {
+    const snap = await get(ref(db, `rooms/${code}`));
+    if (!snap.exists()) { homeError = `חדר ${code} לא נמצא. בדוק את הקוד או צור משחק חדש.`; code = null; setUrl(); screen = 'home'; return render(); }
+    if (snap.val().players?.[pid]) return enterRoom();
+    screen = 'join'; render();
+  } catch (e) {
+    console.error(e); homeError = 'בעיית חיבור לשרת. בדוק את האינטרנט ונסה שוב.'; screen = 'home'; render();
+  }
+}
+
+function setUrl() {
+  const u = new URL(location.href);
+  if (code) u.searchParams.set('room', code); else u.searchParams.delete('room');
+  history.replaceState(null, '', u);
+}
+
+function enterRoom() {
+  setUrl();
+  screen = 'room';
+  roomUnsub && roomUnsub();
+  roomUnsub = onValue(R(), (s) => {
+    room = s.val();
+    if (!room) { homeError = 'החדר נסגר.'; leave(); return; }
+    if (!room.players?.[pid]) { screen = 'join'; homeError = 'הוצאת מהחדר, אפשר להצטרף מחדש.'; }
+    else if (screen === 'join') screen = 'room';
+    render();
+  });
+  presenceUnsub && presenceUnsub();
+  presenceUnsub = onValue(ref(db, '.info/connected'), (s) => {
+    if (s.val() !== true || !code) return;
+    const onRef = R(`players/${pid}/online`);
+    onDisconnect(onRef).set(false);
+    get(R(`players/${pid}`)).then((p) => { if (p.exists()) set(onRef, true); });
+  });
+  keepAwake();
+}
+
+function leave() {
+  roomUnsub && roomUnsub(); roomUnsub = null;
+  presenceUnsub && presenceUnsub(); presenceUnsub = null;
+  room = null; code = null; setUrl(); screen = 'home'; render();
+}
+
+async function createRoom(name) {
+  let c;
+  for (let i = 0; i < 10; i++) {
+    c = String(1000 + Math.floor(Math.random() * 9000));
+    if (!(await get(ref(db, `rooms/${c}`))).exists()) break;
+  }
+  code = c;
+  await set(ref(db, `rooms/${c}`), {
+    host: pid, createdAt: serverTimestamp(), phase: 'lobby', settings: DEFAULTS,
+    seed: Math.floor(Math.random() * 2 ** 31), deckPos: 0,
+    players: { [pid]: { name, team: 0, joinedAt: serverTimestamp(), online: true } },
+  });
+  enterRoom();
+}
+
+async function joinRoom(name) {
+  const snap = await get(ref(db, `rooms/${code}`));
+  if (!snap.exists()) { homeError = 'החדר לא נמצא.'; code = null; setUrl(); screen = 'home'; return render(); }
+  const r = snap.val();
+  const players = Object.values(r.players || {});
+  const n = (r.settings || DEFAULTS).teamCount || 2;
+  const existing = r.players?.[pid];
+  if (existing) await update(ref(db, `rooms/${code}/players/${pid}`), { name, online: true });
+  else await set(ref(db, `rooms/${code}/players/${pid}`), { name, team: smallestTeam(players, n), joinedAt: serverTimestamp(), online: true });
+  homeError = '';
+  enterRoom();
+}
+
+// ---------- פעולות במשחק ----------
+const A = {
+  async create() {
+    const name = readName(); if (!name) return;
+    try { await createRoom(name); } catch (e) { console.error(e); toast('לא הצלחתי ליצור חדר, נסה שוב'); }
+  },
+  async goJoin() {
+    const name = readName(); if (!name) return;
+    const c = (document.getElementById('code').value || '').replace(/\D/g, '');
+    if (c.length < 4) { toast('הקלד קוד חדר'); return; }
+    code = c; await joinRoom(name).catch(() => toast('בעיית חיבור, נסה שוב'));
+  },
+  async join() {
+    const name = readName(); if (!name) return;
+    await joinRoom(name).catch(() => toast('בעיית חיבור, נסה שוב'));
+  },
+  share() {
+    const url = shareUrl();
+    const text = `בוא לשחק אליאס! קוד חדר ${code}\n${url}`;
+    if (navigator.share) navigator.share({ title: 'אליאס', text, url }).catch(() => {});
+    else A.copy();
+  },
+  whatsapp() { window.open(`https://wa.me/?text=${encodeURIComponent(`בוא לשחק אליאס! קוד חדר ${code}\n${shareUrl()}`)}`, '_blank'); },
+  copy() { navigator.clipboard?.writeText(shareUrl()).then(() => toast('הקישור הועתק'), () => toast(shareUrl())); },
+  leave() { if (confirm('לצאת מהמשחק?')) { remove(R(`players/${pid}`)).finally(leave); } },
+  mute() { muted = !muted; store.set('alias_muted', muted ? '1' : '0'); render(); },
+
+  // לובי
+  setting(key, val) {
+    if (!isHost()) return;
+    if (key === 'skipPenalty') val = !settings().skipPenalty;
+    else if (key !== 'level') val = Number(val);
+    const upd = { [`settings/${key}`]: val };
+    if (key === 'teamCount') {
+      const ps = playersArr(); const placed = ps.filter((p) => p.team < val);
+      ps.filter((p) => p.team >= val).forEach((p) => { p.team = smallestTeam(placed, val); placed.push(p); upd[`players/${p.id}/team`] = p.team; });
+    }
+    update(R(), upd);
+  },
+  shuffleTeams() {
+    if (!isHost()) return;
+    const n = settings().teamCount; const upd = {};
+    seededShuffle(playersArr(), Math.random() * 2 ** 31).forEach((p, i) => { upd[`players/${p.id}/team`] = i % n; });
+    update(R(), upd);
+  },
+  move(id) {
+    if (!(isHost() || id === pid) || room.phase !== 'lobby') return;
+    const n = settings().teamCount;
+    update(R(), { [`players/${id}/team`]: ((room.players[id].team || 0) + 1) % n });
+  },
+  kick(id) {
+    if (!isHost() || id === pid) return;
+    if (confirm(`להוציא את ${pname(id)} מהחדר?`)) remove(R(`players/${id}`));
+  },
+  takeHost() { if (confirm('להפוך למארח של החדר?')) update(R(), { host: pid }); },
+
+  startGame() {
+    if (!isHost()) return;
+    const st = settings();
+    const empty = TEAMS.slice(0, st.teamCount).filter((_, t) => !teamPlayers(t).length);
+    if (empty.length) { toast('בכל קבוצה צריך לפחות שחקן אחד'); return; }
+    const plan = planTurn({ team: 0, idx: {} }, st.teamCount, 1);
+    const scores = {}; for (let t = 0; t < st.teamCount; t++) scores[t] = 0;
+    update(R(), { phase: 'ready', scores, turn: plan.turn, rot: plan.rot, winner: null, seed: Math.floor(Math.random() * 2 ** 31), deckPos: 0 });
+  },
+  nextExplainer() {
+    if (!isHost() || room.phase !== 'ready') return;
+    const t = room.turn; const tp = teamPlayers(t.team); if (!tp.length) return;
+    const counter = t.counter + 1;
+    update(R(), { 'turn/counter': counter, 'turn/explainer': tp[counter % tp.length].id, [`rot/idx/${t.team}`]: counter + 1 });
+  },
+  startTurn() {
+    if (room.phase !== 'ready' || !(room.turn.explainer === pid || isHost())) return;
+    const pos = room.deckPos || 0;
+    update(R(), {
+      phase: 'playing', 'turn/endsAt': now() + settings().seconds * 1000, 'turn/paused': null,
+      'turn/current': pos, 'turn/words': null, 'turn/lastBy': -1, deckPos: pos + 1,
+    });
+    beep(660, 0.15); vibrate(80);
+  },
+  answer(r) {
+    const t = room.turn;
+    if (room.phase !== 'playing' || t.explainer !== pid || t.paused != null || now() >= t.endsAt) return;
+    if (Date.now() - lastTap < 350) return; lastTap = Date.now();
+    const words = turnWords(); const pos = room.deckPos || 0;
+    update(R(), { [`turn/words/${words.length}`]: { w: wordAt(t.current), r }, 'turn/current': pos, deckPos: pos + 1 });
+    if (r === 'ok') { beep(1046, 0.08, 0.15); vibrate(30); } else vibrate([15, 40, 15]);
+  },
+  pause() { if (isHost() && room.phase === 'playing' && room.turn.paused == null) update(R(), { 'turn/paused': Math.max(0, room.turn.endsAt - now()) }); },
+  resume() { if (isHost() && room.turn.paused != null) update(R(), { 'turn/endsAt': now() + room.turn.paused, 'turn/paused': null }); },
+  toggleWord(i) {
+    if (!canReview()) return;
+    const w = turnWords()[i]; if (!w) return;
+    update(R(), { [`turn/words/${i}/r`]: w.r === 'ok' ? 'skip' : 'ok' });
+  },
+  lastBy(t) { if (canReview()) update(R(), { 'turn/lastBy': Number(t) }); },
+  async confirmTurn() {
+    if (!canReview()) return;
+    // מונע אישור כפול (מסביר ומארח בו-זמנית)
+    const tx = await runTransaction(R('phase'), (p) => (p === 'review' ? 'saving' : undefined));
+    if (!tx.committed) return;
+    const st = settings(); const t = room.turn; const ws = turnWords();
+    const ok = ws.filter((w) => w.r === 'ok').length, sk = ws.length - ok;
+    const scores = { ...room.scores };
+    scores[t.team] = Math.max(0, (scores[t.team] || 0) + ok - (st.skipPenalty ? sk : 0));
+    if (t.lastBy >= 0) scores[t.lastBy] = (scores[t.lastBy] || 0) + 1;
+    const plan = planTurn(room.rot, st.teamCount, (t.num || 0) + 1);
+    const vals = Object.values(scores); const max = Math.max(...vals);
+    const leaders = Object.keys(scores).filter((k) => scores[k] === max);
+    // המשחק נגמר רק בסוף סבב (כשלכל הקבוצות היה מספר תורות שווה), ואין תיקו
+    const roundDone = !plan || plan.turn.team <= t.team;
+    if (max >= st.target && roundDone && leaders.length === 1) {
+      await update(R(), { phase: 'finished', scores, winner: Number(leaders[0]), lastTurn: { team: t.team, ok, sk } });
+      return;
+    }
+    await update(R(), { phase: 'ready', scores, turn: plan.turn, rot: plan.rot, lastTurn: { team: t.team, ok, sk, lastBy: t.lastBy, explainer: t.explainer } });
+  },
+  endGame() { if (isHost() && confirm('לסיים את המשחק ולחזור ללובי?')) update(R(), { phase: 'lobby', turn: null, scores: null, rot: null, winner: null, lastTurn: null }); },
+  playAgain() { if (isHost()) update(R(), { phase: 'lobby', turn: null, scores: null, rot: null, winner: null, lastTurn: null }); },
+};
+let lastTap = 0;
+const canReview = () => room.phase === 'review' && (room.turn.explainer === pid || isHost());
+const shareUrl = () => { const u = new URL(location.href); u.search = ''; u.hash = ''; u.searchParams.set('room', code); return u.toString(); };
+function readName() {
+  const el = document.getElementById('name');
+  const name = (el?.value || '').trim().slice(0, 16);
+  if (!name) { toast('הקלד את השם שלך'); el?.focus(); return null; }
+  store.set('alias_name', name);
+  return name;
+}
+
+$app.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-a]'); if (!el) return;
+  e.stopPropagation();
+  const fn = A[el.dataset.a]; if (fn) fn(el.dataset.v, el.dataset.w);
+});
+$app.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (screen === 'join') A.join();
+  else if (screen === 'home') (document.getElementById('code')?.value ? A.goJoin() : A.create());
+});
+
+// ---------- תצוגה ----------
+function render() {
+  const html = screen === 'home' ? viewHome() : screen === 'join' ? viewJoin() : screen === 'room' && room ? viewRoom() : '<div class="loading">טוען...</div>';
+  // שומר על תוכן שדות טקסט בזמן רינדור מחדש
+  const keep = {}; $app.querySelectorAll('input[id]').forEach((i) => { keep[i.id] = i.value; });
+  const focused = document.activeElement?.id;
+  $app.innerHTML = html;
+  Object.entries(keep).forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
+  if (focused) document.getElementById(focused)?.focus();
+  tick(true);
+}
+
+const nameField = () => `<input id="name" maxlength="16" placeholder="השם שלך" autocomplete="nickname" value="${esc(store.get('alias_name') || '')}">`;
+
+function viewHome() {
+  return `
+  <div class="logo"><h1>אלי<span>אס</span></h1><p>מסבירים מילים בלי להגיד אותן, כל אחד מהטלפון שלו</p></div>
+  ${homeError ? `<div class="err">${esc(homeError)}</div>` : ''}
+  <div class="card">${nameField()}<button class="primary big" data-a="create">🎲 צור משחק חדש</button></div>
+  <div class="divider">או הצטרף למשחק קיים</div>
+  <div class="card"><div class="row"><input id="code" inputmode="numeric" maxlength="6" placeholder="קוד חדר"><button data-a="goJoin">הצטרף</button></div></div>
+  <div class="spacer"></div>
+  <p class="muted center">המארח יוצר חדר ושולח קישור לכולם בוואטסאפ</p>`;
+}
+
+function viewJoin() {
+  return `
+  <div class="logo"><h1>אלי<span>אס</span></h1><p>הצטרפות לחדר</p></div>
+  <div class="bigcode">${esc(code)}</div>
+  ${homeError ? `<div class="err">${esc(homeError)}</div>` : ''}
+  <div class="card">${nameField()}<button class="primary big" data-a="join">כניסה למשחק</button></div>`;
+}
+
+function topbar() {
+  return `<div class="topbar">
+    <button class="icon-btn" data-a="leave" title="יציאה">🚪</button>
+    <div class="code">חדר <b>${esc(code)}</b>${isHost() ? ' · 👑 מארח' : ''}</div>
+    <button class="icon-btn" data-a="mute" title="צליל">${muted ? '🔇' : '🔊'}</button>
+  </div>`;
+}
+
+function hostMissing() {
+  const h = room.players?.[room.host];
+  if (isHost() || (h && h.online !== false)) return '';
+  return `<div class="card"><div class="muted">המארח ${h ? esc(h.name) + ' התנתק' : 'יצא מהחדר'}.</div><button data-a="takeHost">👑 קח שליטה כמארח</button></div>`;
+}
+
+function viewRoom() {
+  const p = room.phase;
+  const body = p === 'lobby' ? viewLobby() : p === 'ready' ? viewReady() : p === 'playing' ? viewPlaying()
+    : p === 'review' || p === 'saving' ? viewReview() : p === 'finished' ? viewFinished() : '';
+  return topbar() + hostMissing() + body;
+}
+
+function playerChip(pl, opts = {}) {
+  const me = pl.id === pid; const tap = room.phase === 'lobby' && (isHost() || me);
+  return `<div class="player ${me ? 'me' : ''} ${pl.online === false ? 'off' : ''} ${tap ? 'tap' : ''}" ${tap ? `data-a="move" data-v="${pl.id}"` : ''}>
+    <span class="dot"></span><span class="nm">${room.host === pl.id ? '👑 ' : ''}${esc(pl.name)}${me ? ' (אני)' : ''}</span>
+    ${opts.kick && isHost() && !me ? `<button class="x" data-a="kick" data-v="${pl.id}">✕</button>` : ''}
+  </div>`;
+}
+
+function seg(key, options, cur) {
+  return `<div class="seg">${options.map(([v, label]) =>
+    `<button class="${String(cur) === String(v) ? 'on' : ''}" ${isHost() ? `data-a="setting" data-v="${key}" data-w="${v}"` : 'disabled'}>${label}</button>`).join('')}</div>`;
+}
+
+function viewLobby() {
+  const st = settings(); const n = st.teamCount;
+  const teams = TEAMS.slice(0, n).map((tm, t) => `
+    <div class="team" style="--c:${tm.color}"><h3>${tm.name} (${teamPlayers(t).length})</h3>
+      ${teamPlayers(t).map((pl) => playerChip(pl, { kick: true })).join('') || '<div class="muted">אין שחקנים</div>'}
+    </div>`).join('');
+  const url = shareUrl();
+  return `
+  <div class="card share">
+    <div class="label center">הזמינו חברים לחדר</div>
+    <div class="bigcode">${esc(code)}</div>
+    <div class="linkbox">${esc(url)}</div>
+    <div class="row"><button data-a="whatsapp">💬 וואטסאפ</button><button data-a="share">📤 שיתוף</button><button data-a="copy">📋 העתק</button></div>
+  </div>
+  <div class="label">${isHost() ? 'לחיצה על שחקן מעבירה אותו לקבוצה הבאה' : 'לחיצה על השם שלך מעבירה אותך לקבוצה אחרת'}</div>
+  <div class="teams">${teams}</div>
+  ${isHost() ? `
+  <div class="card">
+    <div class="label">מספר קבוצות</div>${seg('teamCount', [[2, '2'], [3, '3'], [4, '4']], n)}
+    <button data-a="shuffleTeams">🔀 חלק קבוצות באקראי</button>
+    <div class="label">שניות לכל תור</div>${seg('seconds', [[30, '30'], [45, '45'], [60, '60'], [90, '90'], [120, '120']], st.seconds)}
+    <div class="label">ניקוד לניצחון</div>${seg('target', [[20, '20'], [30, '30'], [40, '40'], [50, '50'], [75, '75']], st.target)}
+    <div class="label">רמת קושי</div>${seg('level', Object.entries(LEVELS), st.level)}
+    <div class="toggle"><span>דילוג מוריד נקודה</span><button class="sw ${st.skipPenalty ? 'on' : ''}" data-a="setting" data-v="skipPenalty"></button></div>
+  </div>
+  <button class="primary big" data-a="startGame">▶️ התחל משחק</button>` : `
+  <div class="card center"><div>⏳ מחכים שהמארח יתחיל את המשחק</div>
+    <div class="muted">${st.seconds} שניות לתור · ${st.target} נקודות לניצחון · רמה: ${LEVELS[st.level]}${st.skipPenalty ? ' · דילוג = מינוס נקודה' : ''}</div></div>`}`;
+}
+
+function scoreboard() {
+  const st = settings(); const active = room.turn?.team;
+  return `<div class="scores">${TEAMS.slice(0, st.teamCount).map((tm, t) => `
+    <div class="score ${t === active && room.phase !== 'finished' ? 'active' : ''}" style="--c:${tm.color}">
+      <div class="n">${room.scores?.[t] || 0}</div><div class="t">${tm.name}</div>
+      <div class="bar"><i style="width:${Math.min(100, ((room.scores?.[t] || 0) / st.target) * 100)}%"></i></div>
+    </div>`).join('')}</div><div class="muted center">ראשונים ל-${st.target} מנצחים</div>`;
+}
+
+function lastTurnLine() {
+  const l = room.lastTurn; if (!l || room.phase !== 'ready') return '';
+  const st = settings(); const delta = l.ok - (st.skipPenalty ? l.sk : 0);
+  return `<div class="muted center">בתור הקודם: ${teamOf(l.team).name} ${delta >= 0 ? '+' : ''}${delta}${l.lastBy >= 0 ? ` · המילה האחרונה ${toTeam(l.lastBy)}` : ''}</div>`;
+}
+
+function viewReady() {
+  const t = room.turn; const tm = teamOf(t.team); const me = t.explainer === pid;
+  const exName = esc(pname(t.explainer));
+  const myTeam = room.players[pid]?.team === t.team;
+  return `${scoreboard()}${lastTurnLine()}
+  <div class="hero" style="--c:${tm.color}">
+    <span class="pill" style="--c:${tm.color}">תור ${t.num} · ${tm.name}</span>
+    <div class="who">${me ? 'אתה מסביר! 🎤' : `${exName} מסביר`}</div>
+    <div class="muted">${me ? 'תחזיק את הטלפון כך שאף אחד לא יראה, ולחץ התחל כשאתה מוכן' : myTeam ? 'אתם מנחשים! תתכוננו 🧠' : 'הקבוצה שלך צופה בתור הזה'}</div>
+  </div>
+  ${me ? `<button class="primary big" data-a="startTurn">▶️ התחל (${settings().seconds} שניות)</button>`
+       : `<div class="center muted">⏳ מחכים ש${exName} ילחץ התחל...</div>`}
+  ${isHost() ? `<div class="row">${!me ? '<button data-a="startTurn">▶️ התחל במקומו</button>' : ''}<button data-a="nextExplainer">⏭️ החלף מסביר</button></div>
+    <button class="icon-btn" data-a="endGame">⏹️ סיים משחק</button>` : ''}`;
+}
+
+function viewPlaying() {
+  const t = room.turn; const tm = teamOf(t.team); const me = t.explainer === pid;
+  const myTeam = room.players[pid]?.team === t.team;
+  const ws = turnWords(); const ok = ws.filter((w) => w.r === 'ok').length; const sk = ws.length - ok;
+  const paused = t.paused != null;
+  let main;
+  if (me) {
+    main = `<div class="word">${esc(wordAt(t.current))}</div>
+      <div class="actions"><button class="btn-skip" data-a="answer" data-v="skip">⏭️ דלג</button><button class="btn-ok" data-a="answer" data-v="ok">✅ ניחשו</button></div>`;
+  } else if (myTeam) {
+    main = `<div class="hero" style="--c:${tm.color}"><div class="who">נחשו! 🧠</div><div class="muted">${esc(pname(t.explainer))} מסביר</div></div>`;
+  } else {
+    main = `<div class="hero" style="--c:${tm.color}"><div class="muted">${esc(pname(t.explainer))} מסביר ${toTeam(t.team)}. תוודאו שהוא לא אומר את המילה:</div>
+      <div class="who">${esc(wordAt(t.current))}</div></div>`;
+  }
+  return `<span class="pill center" style="--c:${tm.color}; align-self:center">${tm.name} · ${esc(pname(t.explainer))}</span>
+    ${paused ? '<div class="paused">⏸️ המשחק מושהה</div>' : ''}
+    <div class="timer" data-timer>--</div><div class="tbar"><i data-tbar></i></div>
+    ${main}
+    <div class="counts"><span>✅ ${ok}</span><span>⏭️ ${sk}</span></div>
+    ${isHost() ? (paused ? '<button data-a="resume">▶️ המשך</button>' : '<button data-a="pause">⏸️ השהה</button>') : ''}`;
+}
+
+function viewReview() {
+  const t = room.turn; const tm = teamOf(t.team); const can = canReview(); const st = settings();
+  const ws = turnWords(); const ok = ws.filter((w) => w.r === 'ok').length; const sk = ws.length - ok;
+  const delta = ok - (st.skipPenalty ? sk : 0);
+  const last = wordAt(t.current);
+  const teamBtns = [[-1, 'אף אחד']].concat(TEAMS.slice(0, st.teamCount).map((x, i) => [i, x.name]));
+  return `<div class="hero" style="--c:${tm.color}"><div class="who">⏰ הזמן נגמר!</div>
+      <div>${tm.name}: <b>${delta >= 0 ? '+' : ''}${delta}</b> נקודות (✅ ${ok} · ⏭️ ${sk})</div></div>
+    <div class="card"><div class="label">${can ? 'לחץ על מילה כדי לתקן אם טעית' : `${esc(pname(t.explainer))} בודק את המילים...`}</div>
+      <div class="wl">${ws.map((w, i) => `<div class="wi ${w.r} ${can ? 'tap' : ''}" ${can ? `data-a="toggleWord" data-v="${i}"` : ''}><span>${esc(w.w)}</span><b>${w.r === 'ok' ? '✅' : '⏭️'}</b></div>`).join('') || '<div class="muted">לא היו מילים בתור הזה</div>'}</div>
+    </div>
+    <div class="card"><div class="label">המילה האחרונה: כל הקבוצות יכולות לנחש!</div>
+      <div class="word" style="font-size:34px;padding:18px">${esc(last)}</div>
+      <div class="label">מי ניחש ראשון?</div>
+      <div class="seg">${teamBtns.map(([v, l]) => `<button class="${t.lastBy === v ? 'on' : ''}" ${can ? `data-a="lastBy" data-v="${v}"` : 'disabled'}>${l}</button>`).join('')}</div>
+    </div>
+    ${can ? `<button class="primary big" data-a="confirmTurn" ${room.phase === 'saving' ? 'disabled' : ''}>✔️ אשר וקדימה לתור הבא</button>` : ''}`;
+}
+
+function viewFinished() {
+  const tm = teamOf(room.winner); const mine = room.players[pid]?.team === room.winner;
+  return `<div class="win">🏆</div>
+    <div class="hero" style="--c:${tm.color}"><div class="who" style="color:${tm.color}">${tm.name} ניצחו!</div>
+      <div>${mine ? 'כל הכבוד! 🎉' : 'בפעם הבאה 💪'}</div>
+      <div class="muted">${teamPlayers(room.winner).map((p) => esc(p.name)).join(' · ')}</div></div>
+    ${scoreboard()}
+    ${isHost() ? '<button class="primary big" data-a="playAgain">🔄 משחק חוזר</button>' : '<div class="muted center">המארח יכול להתחיל משחק חוזר</div>'}`;
+}
+
+// ---------- טיימר משותף ----------
+let lastSec = null, endedFor = null;
+function tick(fromRender) {
+  if (screen !== 'room' || !room || room.phase !== 'playing') { lastSec = null; return; }
+  const t = room.turn; const total = settings().seconds * 1000;
+  const remain = Math.max(0, t.paused != null ? t.paused : t.endsAt - now());
+  const sec = Math.ceil(remain / 1000);
+  const el = $app.querySelector('[data-timer]'); const bar = $app.querySelector('[data-tbar]');
+  if (el) { el.textContent = sec; el.classList.toggle('warn', sec <= 10 && t.paused == null); }
+  if (bar) bar.style.width = `${(remain / total) * 100}%`;
+  if (!fromRender && t.paused == null && sec !== lastSec && lastSec !== null) {
+    if (sec <= 10 && sec > 0) beep(sec <= 3 ? 990 : 740, 0.09, 0.2);
+    if (sec === 0) { beep(220, 0.7, 0.35); vibrate([200, 100, 400]); }
+  }
+  lastSec = sec;
+  // כשהזמן נגמר: כל טלפון מנסה להעביר לשלב הבדיקה, רק אחד מצליח
+  if (remain <= 0 && t.paused == null && endedFor !== t.endsAt) {
+    endedFor = t.endsAt;
+    runTransaction(R('phase'), (p) => (p === 'playing' ? 'review' : undefined)).catch(() => { endedFor = null; });
+  }
+}
+setInterval(() => tick(false), 100);
+
+start();
+</script>
+</body>
+</html>
