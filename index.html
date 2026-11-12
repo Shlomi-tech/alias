@@ -67,6 +67,16 @@
   .pick .cnt { color: var(--muted); font-size: 15px; }
   .pick.cur { opacity: .55; }
   .danger { background: #4a1630; color: #ffb4c8; }
+  .vbar { position: sticky; bottom: 0; margin: auto -16px calc(-24px - env(safe-area-inset-bottom)); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: #1b1640ee; backdrop-filter: blur(6px); border-top: 1px solid var(--card2); display: flex; flex-direction: column; gap: 8px; z-index: 5; }
+  .vbar.on { border-top: 2px solid var(--ok); }
+  .vrow { display: flex; gap: 8px; align-items: center; }
+  .vrow button { flex: 1; padding: 12px; font-size: 16px; }
+  .vjoin { background: var(--ok); color: #fff; }
+  .vleave { background: #4a1630; color: #ffb4c8; }
+  .vmuted { background: var(--skip); color: #fff; }
+  .vchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .vchip { background: #17132f; border-radius: 99px; padding: 5px 10px; font-size: 14px; transition: box-shadow .15s; }
+  .talk { box-shadow: 0 0 0 3px var(--ok) !important; }
   .gitem { display: flex; align-items: center; gap: 8px; background: #17132f; border-radius: 12px; padding: 10px 12px; }
   .gitem .ginfo { flex: 1; min-width: 0; font-size: 16px; }
   .gitem button { padding: 10px 14px; font-size: 16px; }
@@ -116,12 +126,14 @@
 </head>
 <body>
 <div id="app"><div class="loading">טוען...</div></div>
+<div id="voice-audio" hidden></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, onValue, set, update, get, remove, runTransaction, onDisconnect, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { WORDS } from "./words.js";
+import { createVoice } from "./voice.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyChkOAnLeQ1lMoqS1YzaWbgDpjVhSx1coU",
@@ -160,6 +172,7 @@ const store = {
 };
 let pid = store.get('alias_pid');
 if (!pid) { pid = 'p' + Math.random().toString(36).slice(2, 10); store.set('alias_pid', pid); }
+const voice = createVoice({ db, ref, onValue, set, remove, onDisconnect, pid, onChange: () => render() });
 let code = (new URLSearchParams(location.search).get('room') || '').replace(/\D/g, '').slice(0, 6) || null;
 let room = null;          // מצב החדר מהשרת
 let screen = 'loading';   // home | join | room
@@ -338,6 +351,7 @@ function enterRoom(auto = false) {
 }
 
 function leave(markOffline = true) {
+  voice.leave();
   roomUnsub && roomUnsub(); roomUnsub = null;
   presenceUnsub && presenceUnsub(); presenceUnsub = null;
   if (code && markOffline) set(ref(db, `rooms/${code}/players/${pid}/online`), false).catch(() => {});
@@ -476,6 +490,14 @@ const A = {
     update(R(), { [`scores/${scoreSheet}`]: Math.max(0, (room.scores?.[scoreSheet] || 0) + Number(d)) });
   },
   noop() {},
+  async voiceJoin() {
+    const n = Object.keys(voice.state().members || room?.voice || {}).length;
+    if (n >= 8 && !confirm(`כבר יש ${n} משתתפים בשיחה. מעל 8 השיחה עלולה להיות איטית. להצטרף בכל זאת?`)) return;
+    try { await voice.join(code); }
+    catch (e) { console.error(e); toast(e?.name === 'NotAllowedError' ? 'צריך לאשר גישה למיקרופון בדפדפן' : 'לא הצלחתי להפעיל את המיקרופון'); render(); }
+  },
+  voiceMute() { voice.toggleMute(); },
+  voiceLeave() { voice.leave(); },
   kick(id) {
     if (!isHost() || id === pid) return;
     if (confirm(`להוציא את ${pname(id)} מהחדר?`)) { movingPid = null; remove(R(`players/${id}`)); }
@@ -666,6 +688,28 @@ function fixSheetsView() {
   return '';
 }
 
+function voiceBar() {
+  const v = voice.state();
+  const members = v.joined ? v.members : (room.voice || {});
+  const ids = Object.keys(members).filter((id) => room.players?.[id]);
+  const chips = ids.map((id) => {
+    const st = v.joined ? v.peerState(id) : 'connected';
+    const icon = members[id]?.muted ? '🔇' : st === 'failed' || st === 'disconnected' ? '⚠️' : st !== 'connected' ? '⏳' : '🎙️';
+    return `<span class="vchip" data-vp="${id}">${icon} ${esc(pname(id))}${id === pid ? ' (אני)' : ''}</span>`;
+  }).join('');
+  const failed = v.joined && ids.some((id) => id !== pid && v.peerState(id) === 'failed');
+  if (!v.joined) {
+    return `<div class="vbar"><div class="vrow">
+      <button class="vjoin" data-a="voiceJoin" ${v.joining ? 'disabled' : ''}>🎙️ ${v.joining ? 'מתחבר...' : 'הצטרף לשיחה קולית'}</button>
+      <span class="muted">${ids.length ? `${ids.length} בשיחה` : 'אף אחד עוד לא בשיחה'}</span></div>
+      ${chips ? `<div class="vchips">${chips}</div>` : ''}</div>`;
+  }
+  return `<div class="vbar on"><div class="vchips">${chips}</div>
+    ${failed ? '<div class="muted">⚠️ לא הצלחתי להתחבר לחלק מהמשתתפים. כנראה בגלל הרשת שלהם, נסו לעבור ל-WiFi.</div>' : ''}
+    <div class="vrow"><button class="${v.muted ? 'vmuted' : ''}" data-a="voiceMute">${v.muted ? '🔇 מושתק, לחץ לדבר' : '🎤 השתק'}</button>
+      <button class="vleave" data-a="voiceLeave">📞 צא מהשיחה</button></div></div>`;
+}
+
 function exitSheetView() {
   if (!exitSheet) return '';
   return `<div class="sheet-bg" data-a="closeExit"><div class="sheet" data-a="noop">
@@ -687,16 +731,16 @@ function viewClosed() {
 }
 
 function viewRoom() {
-  if (room.closed) return topbar() + viewClosed();
+  if (room.closed) { voice.leave(); return topbar() + viewClosed(); }
   const p = room.phase;
   const body = p === 'lobby' ? viewLobby() : p === 'ready' ? viewReady() : p === 'playing' ? viewPlaying()
     : p === 'review' || p === 'saving' ? viewReview() : p === 'finished' ? viewFinished() : '';
-  return exitSheetView() + fixSheetsView() + topbar() + hostMissing() + body;
+  return exitSheetView() + fixSheetsView() + topbar() + hostMissing() + body + voiceBar();
 }
 
 function playerChip(pl, opts = {}) {
   const me = pl.id === pid; const tap = room.phase === 'lobby' && (isHost() || me);
-  return `<div class="player ${me ? 'me' : ''} ${pl.online === false ? 'off' : ''} ${tap ? 'tap' : ''}" ${tap ? `data-a="move" data-v="${pl.id}"` : ''}>
+  return `<div data-vp="${pl.id}" class="player ${me ? 'me' : ''} ${pl.online === false ? 'off' : ''} ${tap ? 'tap' : ''}" ${tap ? `data-a="move" data-v="${pl.id}"` : ''}>
     <span class="dot"></span><span class="nm">${room.host === pl.id ? '👑 ' : ''}${esc(pl.name)}${me ? ' (אני)' : ''}</span>
     ${tap ? '<span class="mv">⇄</span>' : ''}
   </div>`;
