@@ -148,6 +148,8 @@ const TEAMS = [
 const DEFAULTS = { seconds: 60, target: 20, skipPenalty: true, level: 'all', teamCount: 2 };
 let movingPid = null; // השחקן שנבחר להעברה בין קבוצות
 let exitSheet = false; // חלון היציאה פתוח
+let fixSheet = false;   // חלון תיקון המילה האחרונה של התור הקודם
+let scoreSheet = null;  // הקבוצה שהמארח מתקן לה ניקוד ידנית
 let myGames = null;    // רשימת המשחקים שלי (נטענת בדף הבית)
 const LEVELS = { easy: 'קל', medium: 'בינוני', hard: 'קשה', all: 'הכל' };
 
@@ -454,7 +456,25 @@ const A = {
     if (id && room.players?.[id] && (isHost() || id === pid)) update(R(), { [`players/${id}/team`]: Number(t) });
     render();
   },
-  closeSheet() { movingPid = null; render(); },
+  closeSheet() { movingPid = null; fixSheet = false; scoreSheet = null; render(); },
+  // תיקון המילה האחרונה של התור הקודם (אם המסביר שכח לסמן)
+  openFix() { if (canFixLast()) { fixSheet = true; render(); } },
+  fixLast(v) {
+    if (!canFixLast()) return;
+    const l = room.lastTurn; const old = l.lastBy ?? -1; const nb = Number(v);
+    fixSheet = false;
+    if (nb === old) return render();
+    const upd = { 'lastTurn/lastBy': nb };
+    if (old >= 0) upd[`scores/${old}`] = Math.max(0, (room.scores?.[old] || 0) - 1);
+    if (nb >= 0) upd[`scores/${nb}`] = (room.scores?.[nb] || 0) + 1 - (nb === old ? 1 : 0);
+    update(R(), upd); render();
+  },
+  // תיקון ניקוד ידני של המארח
+  openScore(t) { if (isHost() && room.phase !== 'lobby') { scoreSheet = Number(t); render(); } },
+  addScore(d) {
+    if (!isHost() || scoreSheet == null) return;
+    update(R(), { [`scores/${scoreSheet}`]: Math.max(0, (room.scores?.[scoreSheet] || 0) + Number(d)) });
+  },
   noop() {},
   kick(id) {
     if (!isHost() || id === pid) return;
@@ -524,7 +544,7 @@ const A = {
     // המשחק נגמר רק בסוף סבב (כשלכל הקבוצות היה מספר תורות שווה), ואין תיקו
     const roundDone = !plan || plan.turn.team <= t.team;
     if (max >= st.target && roundDone && leaders.length === 1) {
-      await update(R(), { phase: 'finished', scores, winner: Number(leaders[0]), lastTurn: { team: t.team, ok, sk } });
+      await update(R(), { phase: 'finished', scores, winner: Number(leaders[0]), lastTurn: { team: t.team, ok, sk, lastBy: t.lastBy, explainer: t.explainer } });
       return;
     }
     await update(R(), { phase: 'ready', scores, turn: plan.turn, rot: plan.rot, lastTurn: { team: t.team, ok, sk, lastBy: t.lastBy, explainer: t.explainer } });
@@ -533,6 +553,7 @@ const A = {
   playAgain() { if (isHost()) update(R(), { phase: 'lobby', turn: null, scores: null, rot: null, winner: null, lastTurn: null }); },
 };
 let lastTap = 0;
+const canFixLast = () => room.phase === 'ready' && room.lastTurn && (isHost() || room.lastTurn.explainer === pid);
 const canReview = () => room.phase === 'review' && (room.turn.explainer === pid || isHost());
 const shareUrl = () => { const u = new URL(location.href); u.search = ''; u.hash = ''; u.searchParams.set('room', code); return u.toString(); };
 function readName() {
@@ -621,6 +642,30 @@ function hostMissing() {
   return `<div class="card"><div class="muted">המארח ${h ? esc(h.name) + ' התנתק' : 'יצא מהחדר'}.</div><button data-a="takeHost">👑 קח שליטה כמארח</button></div>`;
 }
 
+function fixSheetsView() {
+  const st = settings();
+  if (fixSheet && canFixLast()) {
+    const cur = room.lastTurn.lastBy ?? -1;
+    const opts = [[-1, 'אף אחד', 'var(--muted)']].concat(TEAMS.slice(0, st.teamCount).map((_, t) => [t, teamOf(t).name, teamOf(t).color]));
+    return `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-a="noop">
+      <h2>מי ניחש את המילה האחרונה בתור הקודם?</h2>
+      <div class="muted center">הניקוד יתעדכן אוטומטית</div>
+      ${opts.map(([v, n, c]) => `<button class="pick ${v === cur ? 'cur' : ''}" style="--c:${c}" ${v === cur ? 'disabled' : `data-a="fixLast" data-v="${v}"`}><span class="sw-c"></span><span class="nm">${esc(n)}</span><span class="cnt">${v === cur ? '✓ מסומן עכשיו' : v >= 0 ? '+1 נקודה' : ''}</span></button>`).join('')}
+      <button data-a="closeSheet">ביטול</button>
+    </div></div>`;
+  }
+  if (scoreSheet != null && isHost()) {
+    const tm = teamOf(scoreSheet);
+    return `<div class="sheet-bg" data-a="closeSheet"><div class="sheet" data-a="noop">
+      <h2 style="color:${tm.color}">תיקון ניקוד: ${esc(tm.name)}</h2>
+      <div class="bigcode">${room.scores?.[scoreSheet] || 0}</div>
+      <div class="row"><button class="big" data-a="addScore" data-v="-1">➖ 1</button><button class="big" data-a="addScore" data-v="1">➕ 1</button></div>
+      <button class="primary" data-a="closeSheet">סיום</button>
+    </div></div>`;
+  }
+  return '';
+}
+
 function exitSheetView() {
   if (!exitSheet) return '';
   return `<div class="sheet-bg" data-a="closeExit"><div class="sheet" data-a="noop">
@@ -646,7 +691,7 @@ function viewRoom() {
   const p = room.phase;
   const body = p === 'lobby' ? viewLobby() : p === 'ready' ? viewReady() : p === 'playing' ? viewPlaying()
     : p === 'review' || p === 'saving' ? viewReview() : p === 'finished' ? viewFinished() : '';
-  return exitSheetView() + topbar() + hostMissing() + body;
+  return exitSheetView() + fixSheetsView() + topbar() + hostMissing() + body;
 }
 
 function playerChip(pl, opts = {}) {
@@ -712,16 +757,17 @@ function viewLobby() {
 function scoreboard() {
   const st = settings(); const active = room.turn?.team;
   return `<div class="scores">${TEAMS.slice(0, st.teamCount).map((_, t) => teamOf(t)).map((tm, t) => `
-    <div class="score ${t === active && room.phase !== 'finished' ? 'active' : ''}" style="--c:${tm.color}">
+    <div class="score ${t === active && room.phase !== 'finished' ? 'active' : ''}" style="--c:${tm.color}${isHost() ? ';cursor:pointer' : ''}" ${isHost() ? `data-a="openScore" data-v="${t}"` : ''}>
       <div class="n">${room.scores?.[t] || 0}</div><div class="t">${esc(tm.name)}</div>
       <div class="bar"><i style="width:${Math.min(100, ((room.scores?.[t] || 0) / st.target) * 100)}%"></i></div>
-    </div>`).join('')}</div><div class="muted center">ראשונים ל-${st.target} מנצחים</div>`;
+    </div>`).join('')}</div><div class="muted center">ראשונים ל-${st.target} מנצחים${isHost() ? ' · לחיצה על ניקוד מאפשרת לתקן אותו' : ''}</div>`;
 }
 
 function lastTurnLine() {
   const l = room.lastTurn; if (!l || room.phase !== 'ready') return '';
   const st = settings(); const delta = l.ok - (st.skipPenalty ? l.sk : 0);
-  return `<div class="muted center">בתור הקודם: ${esc(teamOf(l.team).name)} ${delta >= 0 ? '+' : ''}${delta}${l.lastBy >= 0 ? ` · המילה האחרונה ${esc(toTeam(l.lastBy))}` : ''}</div>`;
+  return `<div class="muted center">בתור הקודם: ${esc(teamOf(l.team).name)} ${delta >= 0 ? '+' : ''}${delta} · המילה האחרונה: ${l.lastBy >= 0 ? esc(teamOf(l.lastBy).name) : 'אף אחד'}</div>
+    ${canFixLast() ? '<button class="icon-btn" data-a="openFix">✏️ שכחת לסמן מי ניחש את המילה האחרונה? תקן כאן</button>' : ''}`;
 }
 
 function viewReady() {
